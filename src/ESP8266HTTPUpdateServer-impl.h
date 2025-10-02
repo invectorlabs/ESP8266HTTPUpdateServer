@@ -46,6 +46,13 @@ ESP8266HTTPUpdateServerTemplate<ServerType>::ESP8266HTTPUpdateServerTemplate(boo
 }
 
 template <typename ServerType>
+void ESP8266HTTPUpdateServerTemplate<ServerType>::setPreUpdateCallback(
+    PreUpdateCallback cb)
+{
+  _preUpdateCallback = std::move(cb);
+}
+
+template <typename ServerType>
 void ESP8266HTTPUpdateServerTemplate<ServerType>::setup(ESP8266WebServerTemplate<ServerType> *server, const String& path, const String& username, const String& password)
 {
     _server = server;
@@ -56,6 +63,13 @@ void ESP8266HTTPUpdateServerTemplate<ServerType>::setup(ESP8266WebServerTemplate
     _server->on(path.c_str(), HTTP_GET, [&](){
       if(_username != emptyString && _password != emptyString && !_server->authenticate(_username.c_str(), _password.c_str()))
         return _server->requestAuthentication();
+
+        // ===== call pre-update callback (once per session) =====
+      if (_preUpdateCallback && !_preUpdateCallbackCalled) {
+        _preUpdateCallbackCalled = true;
+        // user callback should be fast and safe; document constraints in README
+        _preUpdateCallback();
+      }
       _server->send_P(200, PSTR("text/html"), serverIndex);
     });
 
@@ -81,6 +95,7 @@ void ESP8266HTTPUpdateServerTemplate<ServerType>::setup(ESP8266WebServerTemplate
         return _server->requestAuthentication();
       if (Update.hasError()) {
         _server->send(200, F("text/html"), String(F("Update error: ")) + _updaterError);
+        _preUpdateCallbackCalled = false;
       } else {
         _server->client().setNoDelay(true);
         _server->send_P(200, PSTR("text/html"), successResponse);
@@ -103,6 +118,12 @@ void ESP8266HTTPUpdateServerTemplate<ServerType>::setup(ESP8266WebServerTemplate
           if (_serial_output)
             Serial.printf("Unauthenticated Update\n");
           return;
+        }
+
+        // === fallback invocation if GET didn't run the callback (guarded) ===
+        if (_preUpdateCallback && !_preUpdateCallbackCalled) {
+          _preUpdateCallbackCalled = true;
+          _preUpdateCallback();
         }
 
         if (_serial_output)
@@ -129,11 +150,13 @@ void ESP8266HTTPUpdateServerTemplate<ServerType>::setup(ESP8266WebServerTemplate
           if (_serial_output) Serial.printf("Update Success: %zu\nRebooting...\n", upload.totalSize);
         } else {
           _setUpdaterError();
+          _preUpdateCallbackCalled = false;
         }
         if (_serial_output) Serial.setDebugOutput(false);
       } else if(_authenticated && upload.status == UPLOAD_FILE_ABORTED){
         Update.end();
         if (_serial_output) Serial.println("Update was aborted");
+        _preUpdateCallbackCalled = false;
       }
       esp_yield();
     });

@@ -2,6 +2,7 @@
 #define __HTTP_UPDATE_SERVER_H
 
 #include <ESP8266WebServer.h>
+#include <functional>
 
 namespace esp8266httpupdateserver {
 using namespace esp8266webserver;
@@ -35,6 +36,9 @@ class ESP8266HTTPUpdateServerTemplate
       _password = password;
     }
 
+    using PreUpdateCallback = std::function<void(void)>;
+    void setPreUpdateCallback(PreUpdateCallback cb);
+
   protected:
     void _setUpdaterError();
 
@@ -45,6 +49,8 @@ class ESP8266HTTPUpdateServerTemplate
     String _password;
     bool _authenticated;
     String _updaterError;
+    PreUpdateCallback _preUpdateCallback = nullptr;
+    bool _preUpdateCallbackCalled = false; // per-session guard
 };
 
 };
